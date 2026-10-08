@@ -76,6 +76,18 @@ func TestFirstRunSHA512AndEmptyFile(t *testing.T) {
 		t.Fatal(mode, err)
 	}
 }
+
+func TestReleaseBinariesExcluded(t *testing.T) {
+	e := fixture(t)
+	m := generate(t, e)
+	for _, name := range []string{"FolderVerify-windows-x64.exe", "FolderVerify-windows-arm64.exe", "FolderVerify-linux-x64", "FolderVerify-linux-arm64"} {
+		put(t, e, name, "release binary")
+	}
+	r := e.Verify(context.Background(), m)
+	if r.Conclusion() != "通过" {
+		t.Fatal("official release binaries must not change the file baseline", r)
+	}
+}
 func TestUnchangedAndManifestNeverModified(t *testing.T) {
 	e := fixture(t)
 	m := generate(t, e)

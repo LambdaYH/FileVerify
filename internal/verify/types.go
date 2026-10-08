@@ -53,7 +53,15 @@ func (e *Engine) excluded(rel string) bool {
 		return false
 	}
 	s := pathKey(rel)
-	return s == pathKey(ManifestName) || s == pathKey(ReportName) || strings.HasPrefix(s, ".folderverify-") || s == pathKey("FolderVerify.exe") || s == pathKey("FolderVerify") || s == pathKey("FolderVerify-linux-amd64") || s == pathKey("FolderVerify-linux-arm64")
+	if s == pathKey(ManifestName) || s == pathKey(ReportName) || strings.HasPrefix(s, ".folderverify-") {
+		return true
+	}
+	for _, name := range []string{"FolderVerify.exe", "FolderVerify", "FolderVerify-linux-amd64", "FolderVerify-linux-arm64", "FolderVerify-linux-x64", "FolderVerify-windows-x64.exe", "FolderVerify-windows-arm64.exe"} {
+		if s == pathKey(name) {
+			return true
+		}
+	}
+	return false
 }
 func (r Result) Counts() map[string]int {
 	m := map[string]int{}

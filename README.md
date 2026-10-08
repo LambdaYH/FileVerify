@@ -2,6 +2,8 @@
 
 Windows / Linux 文件夹完整性校验工具，用于内外网文件传输后的 SHA-512 校验。Windows 使用原生 GUI，Linux 使用命令行；完全离线运行，无第三方依赖，无需安装运行环境或管理员权限。
 
+从 [Releases](https://github.com/LambdaYH/FileVerify/releases) 下载对应系统和架构的文件：`x64` 为 Intel/AMD 64 位，`arm64` 为 ARM 64 位。Windows 文件直接双击；Linux 文件需先 `chmod +x`。下载包可用 `SHA256SUMS.txt` 校验。
+
 ## 使用
 
 1. 将 `FolderVerify.exe` 放入待传输文件夹，双击自动生成 `sha512-manifest.json`。
@@ -23,7 +25,7 @@ chmod +x FolderVerify-linux-amd64
 
 自动识别生成 / 校验模式，以二进制所在目录为准。`--report` 导出或覆盖根目录报告，`--details` 显示所有文件及完整哈希，`--quiet` 隐藏进度。`--regenerate` 需要两次输入 `YES` 才重新生成。按 Ctrl+C 可取消。
 
-退出码：`0` 成功或全部通过，`1` 文件修改 / 缺失 / 新增，`2` 清单错误 / 读取错误 / 校验未完成，`130` 用户取消。支持 amd64 和 arm64。
+退出码：`0` 成功或全部通过，`1` 文件修改 / 缺失 / 新增，`2` 清单错误 / 读取错误 / 校验未完成，`130` 用户取消。支持 x64 和 arm64。
 
 两平台共用清单格式，并排除根目录两种平台的标准程序文件名。跨平台传输请使用 Windows 兼容的文件名；Linux 区分大小写，Windows 不接受仅大小写不同的重复清单路径。
 
@@ -36,7 +38,7 @@ chmod +x FolderVerify-linux-amd64
 
 ## 编译
 
-目标平台：Windows 10 / 11 amd64，以及 Linux amd64 / arm64。开发环境需要 Go 1.23 或更新版本。
+目标平台：Windows 10 / 11 和 Linux 的 x64 / arm64。开发环境需要 Go 1.23 或更新版本。
 
 ```powershell
 .\build-windows.ps1
@@ -56,6 +58,8 @@ Linux 上运行 `sh build-linux.sh`（arm64 可设置 `GOARCH=arm64`）。Window
 .\build-linux.ps1
 .\build-linux.ps1 -Architecture arm64
 ```
+
+运行 `.\build-release.ps1 -Version v1.0.0` 可生成四个平台文件及 SHA-256 校验清单，输出到 `dist/v1.0.0`。该脚本校验所有 PE / ELF 架构，运行本机测试及可在本机执行的 Windows GUI 集成测试。
 
 ## 源码与测试
 
