@@ -1,0 +1,4 @@
+FolderVerify.exe
+sha512-manifest.json
+verify-report.txt
+.folderverify-*.tmp
