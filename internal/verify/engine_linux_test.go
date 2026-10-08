@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestLinuxSymlinksAndFIFO(t *testing.T) {
@@ -122,9 +123,25 @@ func TestLinuxChangesCannotBeHiddenByRestoringMTime(t *testing.T) {
 	e.Progress = func(progress Progress) {
 		if !once && progress.Phase == "校验 SHA-512" && progress.Done == 2 {
 			once = true
-			put(t, e, "empty.bin", "")
-			if err := os.Chtimes(p, info.ModTime(), info.ModTime()); err != nil {
-				t.Fatal(err)
+			// Linux may reuse a timestamp within one clock tick. Ensure the
+			// fixture has an observable ctime change before asserting detection.
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				put(t, e, "empty.bin", "")
+				if err := os.Chtimes(p, info.ModTime(), info.ModTime()); err != nil {
+					t.Fatal(err)
+				}
+				after, err := os.Stat(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if after.Sys().(*syscall.Stat_t).Ctim != info.Sys().(*syscall.Stat_t).Ctim {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("fixture ctime did not advance")
+				}
+				time.Sleep(time.Millisecond)
 			}
 		}
 	}
