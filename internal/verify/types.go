@@ -46,14 +46,14 @@ func (e *Engine) emit(p Progress) {
 	}
 }
 func (e *Engine) excluded(rel string) bool {
-	if strings.EqualFold(filepath.Join(e.Root, filepath.FromSlash(rel)), e.Exe) {
+	if pathKey(filepath.Join(e.Root, filepath.FromSlash(rel))) == pathKey(e.Exe) {
 		return true
 	}
 	if strings.Contains(rel, "/") {
 		return false
 	}
-	s := strings.ToLower(rel)
-	return s == ManifestName || s == ReportName || strings.HasPrefix(s, ".folderverify-")
+	s := pathKey(rel)
+	return s == pathKey(ManifestName) || s == pathKey(ReportName) || strings.HasPrefix(s, ".folderverify-") || s == pathKey("FolderVerify.exe") || s == pathKey("FolderVerify") || s == pathKey("FolderVerify-linux-amd64") || s == pathKey("FolderVerify-linux-arm64")
 }
 func (r Result) Counts() map[string]int {
 	m := map[string]int{}

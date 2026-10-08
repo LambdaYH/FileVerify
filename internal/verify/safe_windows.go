@@ -13,6 +13,9 @@ import (
 var kernel = syscall.NewLazyDLL("kernel32.dll")
 var moveFileEx = kernel.NewProc("MoveFileExW")
 
+func unchangedMetadata(a, b os.FileInfo) bool { return true }
+func pathKey(p string) string                 { return strings.ToLower(p) }
+
 func longPath(p string) string {
 	p, _ = filepath.Abs(p)
 	if strings.HasPrefix(p, `\\?\`) {

@@ -1,4 +1,7 @@
 FolderVerify.exe
+FolderVerify-linux-amd64
+FolderVerify-linux-arm64
+.test-linux/
 sha512-manifest.json
 verify-report.txt
 .folderverify-*.tmp

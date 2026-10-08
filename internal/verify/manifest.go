@@ -108,7 +108,7 @@ func (e *Engine) Load() (*Manifest, error) {
 	}
 	seen := map[string]bool{}
 	for _, f := range m.Files {
-		key := strings.ToLower(f.Path)
+		key := pathKey(f.Path)
 		if !validPath(f.Path) || e.excluded(f.Path) || seen[key] || f.Size < 0 {
 			return nil, fmt.Errorf("非法或重复清单路径：%q", f.Path)
 		}
