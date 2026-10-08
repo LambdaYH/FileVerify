@@ -92,12 +92,29 @@ type app struct {
 
 var active *app
 var font uintptr
+var dpi int32 = 96
+var workArea rect
+
+func scale(value int32) int32 { return (value*dpi + 48) / 96 }
+func limit(value, maximum int32) int32 {
+	if maximum > 0 && value > maximum {
+		return maximum
+	}
+	return value
+}
 
 func Run() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	ret( // DPI-aware native controls; no browser, console, or external runtime.
-		user.NewProc("SetProcessDPIAware").Call())
+	ret(user.NewProc("SetProcessDPIAware").Call())
+	dc := ret(user.NewProc("GetDC").Call(0))
+	if dc != 0 {
+		if value := int32(ret(gdi.NewProc("GetDeviceCaps").Call(dc, 90))); value > 0 {
+			dpi = value
+		}
+		ret(user.NewProc("ReleaseDC").Call(0, dc))
+	}
+	ret(user.NewProc("SystemParametersInfoW").Call(0x30, 0, uintptr(unsafe.Pointer(&workArea)), 0))
 	init := struct{ size, classes uint32 }{8, 0x21}
 	ret(common.NewProc("InitCommonControlsEx").Call(uintptr(unsafe.Pointer(&init))))
 	exe, err := os.Executable()
@@ -120,7 +137,9 @@ func Run() {
 		message(0, "窗口注册失败", 0x10)
 		return
 	}
-	h := ret(user.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(u("FolderVerify · 文件完整性校验"))), 0x00cf0000, 0x80000000, 0x80000000, 1080, 780, 0, 0, instance, 0))
+	width := limit(scale(1160), workArea.right-workArea.left)
+	height := limit(scale(880), workArea.bottom-workArea.top)
+	h := ret(user.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(u("FolderVerify · 文件完整性校验"))), 0x00cf0000, 0x80000000, 0x80000000, uintptr(width), uintptr(height), 0, 0, instance, 0))
 	if h == 0 {
 		message(0, "窗口创建失败", 0x10)
 		return
@@ -152,13 +171,14 @@ func (a *app) control(class, text string, style uintptr, id int) uintptr {
 	return h
 }
 func (a *app) create() {
-	font = ret(gdi.NewProc("CreateFontW").Call(uintptr(^uintptr(14)+1), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(u("Microsoft YaHei UI")))))
+	fontHeight := -(14*dpi + 36) / 72 // 14 pt, scaled with the Windows display setting.
+	font = ret(gdi.NewProc("CreateFontW").Call(uintptr(int64(fontHeight)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(u("Microsoft YaHei UI")))))
 	a.rootLabel = a.control("EDIT", a.engine.Root, 0x800|0x80|0x10000, 0)
 	a.modeLabel = a.control("STATIC", "正在识别工作模式…  |  SHA-512", 0, 0)
 	a.current = a.control("EDIT", "准备扫描", 0x800|0x80, 0)
 	a.progress = a.control("msctls_progress32", "", 0, 0)
 	a.counts = a.control("STATIC", "文件总数：0   已完成：0", 0, 0)
-	a.status = a.control("STATIC", "正在启动", 0, 0)
+	a.status = a.control("EDIT", "正在启动", 0x800|4|0x40|0x200000, 0)
 	a.cancelButton = a.control("BUTTON", "取消任务", 0x10000, 101)
 	a.verifyButton = a.control("BUTTON", "重新校验", 0x10000, 102)
 	a.regenButton = a.control("BUTTON", "重新生成清单…", 0x10000, 103)
@@ -171,7 +191,7 @@ func (a *app) create() {
 		name  string
 		width int32
 	}{{"文件相对路径", 270}, {"状态", 95}, {"预期 SHA-512", 230}, {"实际 SHA-512", 230}, {"原因", 300}} {
-		c := lvcol{mask: 7, width: col.width, text: u(col.name)}
+		c := lvcol{mask: 7, width: scale(col.width), text: u(col.name)}
 		send(a.list, 0x1061, uintptr(i), uintptr(unsafe.Pointer(&c)))
 	}
 	a.detail = a.control("EDIT", "选择结果行可查看及复制完整 SHA-512。\r\n哈希校验只能判断清单与文件是否一致，不能防止文件和清单被同时恶意修改。", 0x800|4|0x40|0x1000|0x200000|0x10000, 108)
@@ -192,18 +212,28 @@ func (a *app) layout() {
 	var r rect
 	ret(user.NewProc("GetClientRect").Call(a.hwnd, uintptr(unsafe.Pointer(&r))))
 	w, h := r.right, r.bottom
-	move(a.rootLabel, 16, 16, w-32, 26)
-	move(a.modeLabel, 16, 50, w-32, 24)
-	move(a.current, 16, 80, w-32, 26)
-	move(a.progress, 16, 116, w-32, 20)
-	move(a.counts, 16, 145, w-32, 24)
-	move(a.status, 16, 175, w-32, 100)
-	buttons := []uintptr{a.cancelButton, a.verifyButton, a.regenButton, a.exportButton, a.copyButton, a.closeButton}
-	for i, b := range buttons {
-		move(b, 16+int32(i)*153, 281, 143, 30)
+	move(a.rootLabel, scale(16), scale(16), w-scale(32), scale(34))
+	move(a.modeLabel, scale(16), scale(58), w-scale(32), scale(30))
+	move(a.current, scale(16), scale(96), w-scale(32), scale(34))
+	move(a.progress, scale(16), scale(140), w-scale(32), scale(22))
+	move(a.counts, scale(16), scale(172), w-scale(32), scale(30))
+	statusHeight := scale(128)
+	if h < scale(800) {
+		statusHeight = scale(72)
 	}
-	move(a.list, 16, 323, w-32, h-515)
-	move(a.detail, 16, h-180, w-32, 164)
+	move(a.status, scale(16), scale(210), w-scale(32), statusHeight)
+	buttonTop := scale(210) + statusHeight + scale(8)
+	buttons := []uintptr{a.cancelButton, a.verifyButton, a.regenButton, a.exportButton, a.copyButton, a.closeButton}
+	buttonWidth := (w - scale(32) - scale(10)*5) / 6
+	for i, b := range buttons {
+		move(b, scale(16)+int32(i)*(buttonWidth+scale(10)), buttonTop, buttonWidth, scale(40))
+	}
+	listTop := buttonTop + scale(52)
+	available := h - listTop - scale(28)
+	detailHeight := limit(scale(200), available/2)
+	listHeight := available - detailHeight
+	move(a.list, scale(16), listTop, w-scale(32), listHeight)
+	move(a.detail, scale(16), listTop+listHeight+scale(12), w-scale(32), detailHeight)
 }
 func enable(h uintptr, yes bool) {
 	v := uintptr(0)
@@ -352,7 +382,7 @@ func windowProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	case 0x24:
 		var bounds minmax
 		ret(kernel.NewProc("RtlMoveMemory").Call(uintptr(unsafe.Pointer(&bounds)), l, unsafe.Sizeof(bounds)))
-		bounds.minTrack = point{980, 650}
+		bounds.minTrack = point{limit(scale(1040), workArea.right-workArea.left), limit(scale(800), workArea.bottom-workArea.top)}
 		ret(kernel.NewProc("RtlMoveMemory").Call(l, uintptr(unsafe.Pointer(&bounds)), unsafe.Sizeof(bounds)))
 		return 0
 	case 1:
