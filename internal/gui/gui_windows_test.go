@@ -116,6 +116,9 @@ func TestNativeEXEWorkflow(t *testing.T) {
 		if list == 0 {
 			t.Fatal("native result list missing")
 		}
+		if want == "清单生成成功" {
+			assertAdaptiveWindow(t, window, list)
+		}
 		send(list, 0x100, 0x24, 0)
 		fullHash := false
 		ret(user.NewProc("EnumChildWindows").Call(window, syscall.NewCallback(func(h, l uintptr) uintptr {
@@ -151,5 +154,55 @@ func TestNativeEXEWorkflow(t *testing.T) {
 	after, _ := os.ReadFile(manifest)
 	if string(before) != string(after) {
 		t.Fatal("GUI verification changed manifest")
+	}
+}
+
+func assertAdaptiveWindow(t *testing.T, window, list uintptr) {
+	t.Helper()
+	var smallFont uintptr
+	for index, size := range []point{{640, 480}, {500, 420}, {1200, 900}} {
+		if ret(user.NewProc("SetWindowPos").Call(window, 0, 0, 0, uintptr(size.x), uintptr(size.y), 0x16)) == 0 {
+			t.Fatal("cannot resize native window")
+		}
+		var outer, client rect
+		ret(user.NewProc("GetWindowRect").Call(window, uintptr(unsafe.Pointer(&outer))))
+		ret(user.NewProc("GetClientRect").Call(window, uintptr(unsafe.Pointer(&client))))
+		if index == 0 && (outer.right-outer.left > 640 || outer.bottom-outer.top > 480) {
+			t.Fatal("window still has a large minimum size", outer)
+		}
+		var controls []rect
+		ret(user.NewProc("EnumChildWindows").Call(window, syscall.NewCallback(func(child, l uintptr) uintptr {
+			if ret(user.NewProc("GetParent").Call(child)) != window {
+				return 1
+			}
+			var bounds rect
+			ret(user.NewProc("GetWindowRect").Call(child, uintptr(unsafe.Pointer(&bounds))))
+			ret(user.NewProc("MapWindowPoints").Call(0, window, uintptr(unsafe.Pointer(&bounds)), 2))
+			controls = append(controls, bounds)
+			return 1
+		}), 0))
+		for i, bounds := range controls {
+			if bounds.left < 0 || bounds.top < 0 || bounds.right > client.right || bounds.bottom > client.bottom || bounds.right <= bounds.left || bounds.bottom <= bounds.top {
+				t.Fatalf("control outside client area at %dx%d: %+v (client %+v)", size.x, size.y, bounds, client)
+			}
+			for _, previous := range controls[:i] {
+				if bounds.left < previous.right && bounds.right > previous.left && bounds.top < previous.bottom && bounds.bottom > previous.top {
+					t.Fatalf("controls overlap at %dx%d: %+v %+v", size.x, size.y, bounds, previous)
+				}
+			}
+		}
+		currentFont := send(list, 0x31, 0, 0)
+		if currentFont == 0 {
+			t.Fatal("result list has no font")
+		}
+		if index == 1 {
+			smallFont = currentFont
+		}
+		if index == 2 && currentFont == smallFont {
+			t.Fatal("font did not adapt when window expanded")
+		}
+		if header := send(list, 0x101f, 0, 0); send(header, 0x31, 0, 0) != currentFont {
+			t.Fatal("result header font did not scale with rows")
+		}
 	}
 }

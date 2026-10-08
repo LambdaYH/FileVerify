@@ -88,6 +88,7 @@ type app struct {
 	cancel                                                                         context.CancelFunc
 	running, started, closing                                                      bool
 	textBuffer                                                                     []uint16
+	fontPixels                                                                     int32
 }
 
 var active *app
@@ -171,8 +172,6 @@ func (a *app) control(class, text string, style uintptr, id int) uintptr {
 	return h
 }
 func (a *app) create() {
-	fontHeight := -(14*dpi + 36) / 72 // 14 pt, scaled with the Windows display setting.
-	font = ret(gdi.NewProc("CreateFontW").Call(uintptr(int64(fontHeight)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(u("Microsoft YaHei UI")))))
 	a.rootLabel = a.control("EDIT", a.engine.Root, 0x800|0x80|0x10000, 0)
 	a.modeLabel = a.control("STATIC", "正在识别工作模式…  |  SHA-512", 0, 0)
 	a.current = a.control("EDIT", "准备扫描", 0x800|0x80, 0)
@@ -212,28 +211,92 @@ func (a *app) layout() {
 	var r rect
 	ret(user.NewProc("GetClientRect").Call(a.hwnd, uintptr(unsafe.Pointer(&r))))
 	w, h := r.right, r.bottom
-	move(a.rootLabel, scale(16), scale(16), w-scale(32), scale(34))
-	move(a.modeLabel, scale(16), scale(58), w-scale(32), scale(30))
-	move(a.current, scale(16), scale(96), w-scale(32), scale(34))
-	move(a.progress, scale(16), scale(140), w-scale(32), scale(22))
-	move(a.counts, scale(16), scale(172), w-scale(32), scale(30))
-	statusHeight := scale(128)
-	if h < scale(800) {
-		statusHeight = scale(72)
+	if w <= 0 || h <= 0 {
+		return
 	}
-	move(a.status, scale(16), scale(210), w-scale(32), statusHeight)
-	buttonTop := scale(210) + statusHeight + scale(8)
+	// Fit to both dimensions, so short or narrow windows also reduce the font.
+	pixels := w * 19 / 1120
+	if vertical := h * 19 / 800; vertical < pixels {
+		pixels = vertical
+	}
+	if pixels < 11 {
+		pixels = 11
+	}
+	if maximum := scale(28); pixels > maximum {
+		pixels = maximum
+	}
+	a.updateFont(pixels)
+	if a.fontPixels > 0 {
+		pixels = a.fontPixels
+	}
+	margin, gap := pixels, pixels/3
+	if gap < 4 {
+		gap = 4
+	}
+	rowHeight := pixels + pixels/2 + 2
+	contentWidth := w - 2*margin
+	y := margin
+	for _, control := range []uintptr{a.rootLabel, a.modeLabel, a.current} {
+		move(control, margin, y, contentWidth, rowHeight)
+		y += rowHeight + gap
+	}
+	progressHeight := pixels * 3 / 4
+	if progressHeight < 10 {
+		progressHeight = 10
+	}
+	move(a.progress, margin, y, contentWidth, progressHeight)
+	y += progressHeight + gap
+	move(a.counts, margin, y, contentWidth, rowHeight)
+	y += rowHeight + gap
+	statusLines := int32(5)
+	if h < pixels*32 {
+		statusLines = 3
+	}
+	statusHeight := (pixels + pixels/3 + 2) * statusLines
+	move(a.status, margin, y, contentWidth, statusHeight)
+	y += statusHeight + gap
 	buttons := []uintptr{a.cancelButton, a.verifyButton, a.regenButton, a.exportButton, a.copyButton, a.closeButton}
-	buttonWidth := (w - scale(32) - scale(10)*5) / 6
-	for i, b := range buttons {
-		move(b, scale(16)+int32(i)*(buttonWidth+scale(10)), buttonTop, buttonWidth, scale(40))
+	columns := int32(6)
+	if contentWidth < (pixels*8+gap*2)*6+gap*5 {
+		columns = 3
 	}
-	listTop := buttonTop + scale(52)
-	available := h - listTop - scale(28)
-	detailHeight := limit(scale(200), available/2)
+	buttonWidth := (contentWidth - gap*(columns-1)) / columns
+	buttonHeight := rowHeight + gap
+	for i, b := range buttons {
+		move(b, margin+int32(i)%columns*(buttonWidth+gap), y+int32(i)/columns*(buttonHeight+gap), buttonWidth, buttonHeight)
+	}
+	listTop := y + (6/columns)*(buttonHeight+gap)
+	available := h - listTop - margin - gap
+	detailHeight := available * 2 / 5
+	if preferred := (pixels + pixels/3 + 2) * 7; detailHeight > preferred {
+		detailHeight = preferred
+	}
 	listHeight := available - detailHeight
-	move(a.list, scale(16), listTop, w-scale(32), listHeight)
-	move(a.detail, scale(16), listTop+listHeight+scale(12), w-scale(32), detailHeight)
+	move(a.list, margin, listTop, contentWidth, listHeight)
+	move(a.detail, margin, listTop+listHeight+gap, contentWidth, detailHeight)
+}
+func (a *app) updateFont(pixels int32) {
+	if pixels == a.fontPixels {
+		return
+	}
+	newFont := ret(gdi.NewProc("CreateFontW").Call(uintptr(int64(-pixels)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, uintptr(unsafe.Pointer(u("Microsoft YaHei UI")))))
+	if newFont == 0 {
+		return
+	}
+	oldFont := font
+	font, a.fontPixels = newFont, pixels
+	for _, control := range []uintptr{a.rootLabel, a.modeLabel, a.current, a.counts, a.status, a.list, a.detail, a.cancelButton, a.verifyButton, a.regenButton, a.exportButton, a.copyButton, a.closeButton} {
+		send(control, 0x30, font, 1)
+	}
+	if header := send(a.list, 0x101f, 0, 0); header != 0 {
+		send(header, 0x30, font, 1)
+	}
+	for i, width := range []int32{16, 6, 12, 12, 18} {
+		send(a.list, 0x101e, uintptr(i), uintptr(width*pixels))
+	}
+	if oldFont != 0 {
+		ret(gdi.NewProc("DeleteObject").Call(oldFont))
+	}
 }
 func enable(h uintptr, yes bool) {
 	v := uintptr(0)
@@ -382,7 +445,9 @@ func windowProc(h uintptr, m uint32, w, l uintptr) uintptr {
 	case 0x24:
 		var bounds minmax
 		ret(kernel.NewProc("RtlMoveMemory").Call(uintptr(unsafe.Pointer(&bounds)), l, unsafe.Sizeof(bounds)))
-		bounds.minTrack = point{limit(scale(1040), workArea.right-workArea.left), limit(scale(800), workArea.bottom-workArea.top)}
+		minimum := rect{right: 480, bottom: 360}
+		ret(user.NewProc("AdjustWindowRectEx").Call(uintptr(unsafe.Pointer(&minimum)), 0x00cf0000, 0, 0))
+		bounds.minTrack = point{limit(minimum.right-minimum.left, workArea.right-workArea.left), limit(minimum.bottom-minimum.top, workArea.bottom-workArea.top)}
 		ret(kernel.NewProc("RtlMoveMemory").Call(l, uintptr(unsafe.Pointer(&bounds)), unsafe.Sizeof(bounds)))
 		return 0
 	case 1:
